@@ -1,0 +1,12 @@
+version: '3'
+
+services:
+  stanfordcorenlp:
+    image: anwala/stanfordcorenlp
+  grapher:
+    image: storygraph-grapher:latest
+    build:
+      context: .
+    command: './serviceClusterStories.py stanfordcorenlp'
+    volumes:
+      - /host/path/to/data:/data
