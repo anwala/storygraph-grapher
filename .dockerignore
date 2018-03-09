@@ -1,0 +1,11 @@
+.git
+.gitignore
+*.md
+Dockerfile
+docker-compose.yml
+docker-run-local.sh
+scratch.py
+privateMaintainGraphs.py
+.DS_Store
+._.DS_Store
+__pycache__
