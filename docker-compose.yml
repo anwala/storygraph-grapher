@@ -9,4 +9,4 @@ services:
       context: .
     command: './serviceClusterStories.py stanfordcorenlp'
     volumes:
-      - /host/path/to/data:/data
+      - /data/anwala/IMLS/StoryGraph:/data

@@ -67,7 +67,7 @@ def fetchLinksFromFeeds(uri, countOfLinksToGet=1):
 	uri = expandUrl(uri)
 	uri = uri.strip()
 	if( len(uri) == 0 ):
-		return []
+		return [], {}
 
 	print('\t\turi:', uri)
 
@@ -83,7 +83,7 @@ def fetchLinksFromFeeds(uri, countOfLinksToGet=1):
 	
 	'''
 
-	rssFeed = ''
+	rssFeed = {}
 	links = []
 	try:
 		rssFeed = feedparser.parse(uri)
@@ -121,12 +121,12 @@ def fetchLinksFromFeeds(uri, countOfLinksToGet=1):
 		if( i+1 == countOfLinksToGet ):
 			break
 
-	return links
+	return links, rssFeed
 
 def getSourcesFromRSS(rssLinks, maxLinksToExtractPerSource=1):
 
 	if( len(rssLinks) == 0 or maxLinksToExtractPerSource < 1 ):
-		return
+		return {}, {}
 
 	dedupDict = {}
 	'''
@@ -140,10 +140,11 @@ def getSourcesFromRSS(rssLinks, maxLinksToExtractPerSource=1):
 	sourcesDict = {}
 	sourcesCountDict = {}
 	sourcesToRename = {}
+	domainRSSFeedsDict = {}
 
 	for rssDict in rssLinks:
 
-		links = fetchLinksFromFeeds(rssDict['rss'].strip(), maxLinksToExtractPerSource)
+		links, rssFeed = fetchLinksFromFeeds(rssDict['rss'].strip(), maxLinksToExtractPerSource)
 		
 		for uriDict in links:
 			
@@ -159,6 +160,7 @@ def getSourcesFromRSS(rssLinks, maxLinksToExtractPerSource=1):
 
 			dedupDict[uriDedupKey] = True
 
+			domainRSSFeedsDict.setdefault(domain, rssFeed)
 			sourcesCountDict.setdefault(domain, -1)
 			sourcesCountDict[domain] += 1
 
@@ -192,7 +194,7 @@ def getSourcesFromRSS(rssLinks, maxLinksToExtractPerSource=1):
 		sourcesDict[domain + '-0'] = sourcesDict.pop(domain)
 	#rename first instance of source with multiple instance as source-0 - end
 
-	return sourcesDict
+	return sourcesDict, domainRSSFeedsDict
 
 def addDetailsToEntities(entities2dList):
 
@@ -671,7 +673,7 @@ def genGraph(defaultConfig, config):
 	entityBuildingParams['debugFlag'] = config['debug-flag']
 	entityBuildingParams['cacheFlag'] = config['cache-html-flag']
 	
-	sources = getSourcesFromRSS( config['feed-parameters']['feeds'], maxLinksToExtractPerSource=config['feed-parameters']['max-extract-links-count'] )
+	sources, domainRSSFeedsDict = getSourcesFromRSS( config['feed-parameters']['feeds'], maxLinksToExtractPerSource=config['feed-parameters']['max-extract-links-count'] )
 	sources, nerVersion = getEntitiesAndEnrichSources(sources, entityBuildingParams)
 	sources = runGraphStories(sources, minSim=config['graph-parameters']['min-sim'], maxIter=config['graph-parameters']['max-iterations'], thresholds=thresholds)
 	
@@ -682,6 +684,7 @@ def genGraph(defaultConfig, config):
 		sources = graphAnnotate.annotate( selector=config['annotation'], storiesGraph=sources, eventThresholds=thresholds['event-thresholds'] )
 
 	config['ner-version'] = nerVersion
+	config['rss-feed'] = domainRSSFeedsDict
 	sources['config'] = config
 	sources['timestamp'] = getISO8601Timestamp()
 
