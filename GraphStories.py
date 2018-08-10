@@ -132,8 +132,8 @@ class GraphStories(object):
 				linkDict['target'] = secondStory
 				linkDict['sim'] = round(sim, 2)
 				linkDict['rank'] = -1
-				linkDict['label'] = ''
-				linkDict['label-description'] = 'rank (sim)'
+				#linkDict['label'] = ''
+				#linkDict['label-description'] = 'rank (sim)'
 
 				self.storiesGraph['links'].append(linkDict)
 				
@@ -147,7 +147,8 @@ class GraphStories(object):
 		self.storiesGraph['links'] = sorted( self.storiesGraph['links'], key=lambda linkDict: linkDict['sim'], reverse=True )
 		for i in range(0, len(self.storiesGraph['links'])):
 			self.storiesGraph['links'][i]['rank'] = i+1
-			self.storiesGraph['links'][i]['label'] = str(i+1) + ' (' + str(self.storiesGraph['links'][i]['sim']) + ')'
+			#self.storiesGraph['links'][i]['label'] = str(i+1) + ' (' + str(self.storiesGraph['links'][i]['sim']) + ')'
+
 		#add ranks to links - end
 
 		print('pairs count:', len(pairs))

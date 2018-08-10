@@ -35,10 +35,12 @@ from genericCommon import expandUrl
 from genericCommon import getConfigParameters
 from genericCommon import writeTextToFile
 from genericCommon import readTextFromFile
+from genericCommon import archiveNowProxy
 
 from genericCommon import getDictFromFile
 from genericCommon import dumpJsonToFile
 from genericCommon import isExclusivePunct
+from genericCommon import getHashForText
 from genericCommon import isStopword
 from genericCommon import getISO8601Timestamp
 
@@ -46,12 +48,47 @@ from GraphStories import GraphStories
 import graphAnnotate
 
 corenlpServerHost = 'stanfordcorenlp'
+globalConfig = {'graphName': ''}
 #experiment - start
 #experiment - end
 
+def localErrorHandler():
+	
+	logFolder = ''
+	errorFile = ''
+
+	if( len(globalConfig['graphName']) != 0 ):
+		logFolder = '/data/logs/' + globalConfig['graphName'] + '/'
+		createFolderAtPath(logFolder)
+
+	if( len(logFolder) != 0 ):
+		errorFile = logFolder + 'errors.txt'
+
+	genericErrorInfo(errorFile)
 
 def workingFolder():
 	return dirname(abspath(__file__)) + '/'
+
+def getMementoRSSFeed(uri):
+
+	if( len(uri) == 0 ):
+		return '', {}
+
+	rssMemento = archiveNowProxy(uri)
+	id_rssMemento = ''
+	rssFeed = {}
+	
+	indx = rssMemento.rfind('/http')
+	if( indx != -1 ):
+		id_rssMemento = rssMemento[:indx] + 'id_' + rssMemento[indx:]
+
+	if( len(id_rssMemento) != 0 ):
+		try:
+			rssFeed = feedparser.parse(id_rssMemento)
+		except:
+			localErrorHandler()
+
+	return id_rssMemento, rssFeed
 
 def fetchLinksFromFeeds(uri, countOfLinksToGet=1):
 
@@ -83,14 +120,25 @@ def fetchLinksFromFeeds(uri, countOfLinksToGet=1):
 	
 	'''
 
-	rssFeed = {}
 	links = []
-	try:
-		rssFeed = feedparser.parse(uri)
-	except:
-		genericErrorInfo()
+	verbose = False
 
-	for i in range(0, len(rssFeed.entries)):
+	#attempt to process memento of rss - start
+	id_rssMemento, rssFeed = getMementoRSSFeed(uri)
+	#attempt to process memento of rss - end
+
+	if( len(rssFeed) == 0 ):
+		print('\t\trss: use uri-r')
+		#here means that for some reason it was not possible to process rss memento, so use live version
+		try:
+			rssFeed = feedparser.parse(uri)
+		except:
+			localErrorHandler()
+	else:
+		print('\t\trss: use uri-m:', id_rssMemento)
+
+
+	for i in range(len(rssFeed.entries)):
 		entry = rssFeed.entries[i]
 
 		try:
@@ -102,21 +150,23 @@ def fetchLinksFromFeeds(uri, countOfLinksToGet=1):
 			tempDict['title'] = ''
 			tempDict['published'] = ''
 			tempDict['link'] = expandUrl(entry.link)	
+			tempDict['rss-uri-m'] = id_rssMemento
 			
 			if( 'title' in entry ):
 				tempDict['title'] =  entry.title
+				if( verbose ):
+					print('\ttitle:', entry.title)
 
 			if( 'published' in entry ):
 				tempDict['published'] = entry.published
-			
-
-			#print('\ttitle:', entry.title)
-			#print('\tpublished:', entry.published)
-			#print('\tlink:', tempDict['link'])
+				if( verbose ):
+					print('\tpublished:', entry.published)
+					print('\tlink:', tempDict['link'])
+					print()
 
 			links.append(tempDict)
 		except:
-			genericErrorInfo()
+			localErrorHandler()
 
 		if( i+1 == countOfLinksToGet ):
 			break
@@ -141,10 +191,16 @@ def getSourcesFromRSS(rssLinks, maxLinksToExtractPerSource=1):
 	sourcesCountDict = {}
 	sourcesToRename = {}
 	domainRSSFeedsDict = {}
-
+	throttle = 0
 	for rssDict in rssLinks:
 
+		if( throttle > 0 ):
+			print('\n\tgetSourcesFromRSS(): throttle IA, sleep:', throttle)
+			time.sleep(throttle)
+
+		prevNow = datetime.now()		
 		links, rssFeed = fetchLinksFromFeeds(rssDict['rss'].strip(), maxLinksToExtractPerSource)
+
 		
 		for uriDict in links:
 			
@@ -187,7 +243,10 @@ def getSourcesFromRSS(rssLinks, maxLinksToExtractPerSource=1):
 
 			sourcesDict[ domainOrDomainCountKey ] = tempDict
 			#sourcesDict[ domainOrDomainCountKey ] = {'link': uri, 'title': uriDict['title'], 'published': uriDict['published'], 'label': rssDict['label']}
-	
+		
+		delta = datetime.now() - prevNow
+		if( delta.seconds < 1 ):
+			throttle = 1
 	#rename first instance of source with multiple instance as source-0 - start
 	for domain in sourcesToRename:
 		domainLink = sourcesDict[domain]['link']
@@ -265,6 +324,21 @@ def setSourceDictDetails(sourceDict):
 		sourceDict['node-details'] = {}
 	sourceDict['extraction-time'] = ''
 
+def sanitizeText(text):
+
+	#temp fix - start
+	#UnicodeEncodeError: 'utf-8' codec can't encode character '\ud83d' in position 3507: surrogates not allowed
+	try:
+		print(text)
+	except UnicodeEncodeError as e:
+		if e.reason == 'surrogates not allowed':
+			text = text.encode('utf-8', 'backslashreplace').decode('utf-8')
+	except:
+		text = ''
+	#temp fix - end
+
+	return text
+
 def getEntitiesAndEnrichSources(sources, paramsDict):
 	#NOTE getEntitiesAndEnrichSourcesSequential DUPLICATES FUNCTIONALITY FOR SIMPLICITY
 	#NOTE getEntitiesAndEnrichSourcesSequential DUPLICATES FUNCTIONALITY FOR SIMPLICITY
@@ -331,6 +405,7 @@ def getEntitiesAndEnrichSources(sources, paramsDict):
 		if( len(text) == 0 ):
 			continue
 
+		text = sanitizeText(text)
 		sourceDict['title'] = title
 		sourceDict['text'] = text
 		sourceDict['favicon'] = favicon
@@ -353,7 +428,7 @@ def getEntitiesAndEnrichSources(sources, paramsDict):
 		workers.close()
 		workers.join()
 	except:
-		genericErrorInfo()
+		localErrorHandler()
 		return sources
 
 	for entitiesDetailsDict in listOfEntities2dList:
@@ -456,7 +531,7 @@ def getEntitiesAndEnrichSourcesSequential(sources, paramsDict):
 			entities2dList = entities2dList + getTokenLabelsForText(allTerms, 'TOP'+str(paramsDict['addTopKTermsFlag'])+'TERM')
 		#add top addTopKTermsFlag terms - end
 
-
+		text = sanitizeText(text)
 		sourceDict['text'] = text
 		sourceDict['title'] = title
 		sourceDict['favicon'] = favicon
@@ -683,11 +758,22 @@ def genGraph(defaultConfig, config):
 	if( len(config['annotation']) != 0 ):
 		sources = graphAnnotate.annotate( selector=config['annotation'], storiesGraph=sources, eventThresholds=thresholds['event-thresholds'] )
 
-	config['ner-version'] = nerVersion
-	config['rss-feed'] = domainRSSFeedsDict
-	sources['config'] = config
+	sources['ner-version'] = nerVersion
+	#config['rss-feeds'] = {}#domainRSSFeedsDict
 	sources['timestamp'] = getISO8601Timestamp()
 
+	#create accessible config - start
+	configJsonStr = json.dumps(config)
+	configHashname = getHashForText(configJsonStr)
+	configFilename = '/data/generic/config-versions/' + configHashname + '.json'
+	
+	if( os.path.exists(configFilename) == False ):
+		config['timestamp'] = sources['timestamp']
+		dumpJsonToFile( configFilename, config )
+
+	sources['config'] = '/files/config/' + config['name'] + '/' + configHashname + '/'
+	#create accessible config - start
+	
 	if( config['censor-flag'] ):
 		sources = censorGraphStories(sources)
 
@@ -697,6 +783,7 @@ def genGraph(defaultConfig, config):
 					'name': config['name'],
 					'history-count': config['history-count']
 			}
+	
 	writeGraph( settings, sources )
 
 
@@ -744,12 +831,18 @@ def writeGraph(settings, sources):
 		#create tar file, delete json - end
 
 		#update menu - start
-		menu = getDictFromFile(outfilename + 'menu.json')
+		menuFilename = outfilename + 'menu.json'
+		
+		if( os.path.exists(menuFilename) ):
+			menu = getDictFromFile(menuFilename)
+		else:
+			menu = {}
+
 		menu[latestGraphName] = {'timestamp': sources['timestamp']}
-		dumpJsonToFile(outfilename + 'menu.json', menu)
+		dumpJsonToFile(menuFilename, menu)
 		#update menu - end
 	except:
-		genericErrorInfo()
+		localErrorHandler()
 	
 
 def getUpdateGraphIndex(historyCount, graphIndexFilename, curPath):
@@ -829,6 +922,7 @@ def recusiveGetAllKeys(myDict, count=0, parents=[]):
 
 if __name__ == "__main__":
 	
+	
 	if( len(sys.argv) < 2 ):
 		print('Usage:', sys.argv[0], '<nlp-server-host>')
 	else:
@@ -845,9 +939,10 @@ if __name__ == "__main__":
 					print('\tchildConfigPath:', childConfigPath)
 
 					childConfig = getConfigParameters( childConfigPath )
+					globalConfig['graphName'] = childConfig['name']
 					genGraph( allParameters['default-config'], childConfig )
 				except:
-					genericErrorInfo()
+					localErrorHandler()
 		
 			delta = datetime.now() - prevNow
 			print('\tdelta seconds:', delta.seconds)
