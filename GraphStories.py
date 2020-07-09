@@ -132,8 +132,6 @@ class GraphStories(object):
 				linkDict['target'] = secondStory
 				linkDict['sim'] = round(sim, 2)
 				linkDict['rank'] = -1
-				#linkDict['label'] = ''
-				#linkDict['label-description'] = 'rank (sim)'
 
 				self.storiesGraph['links'].append(linkDict)
 				
@@ -215,16 +213,8 @@ class GraphStories(object):
 		'''
 		#output experiment - end
 
-		#debug - start
+		
 		setDetailsDict = {}
-		'''
-		setDetailsDict['firstSetSize'] = len(firstSet)
-		setDetailsDict['secondSetSize'] = len(secondSet)
-		setDetailsDict['intersection'] = len(firstSet & secondSet)
-		setDetailsDict['minimum'] = min(len(firstSet), len(secondSet))
-		setDetailsDict['maximum'] = max(len(firstSet), len(secondSet))
-		'''
-		#debug - end
 
 		if( simDict['similarity-metric'] == 'overlap' or simDict['similarity-metric'] == 'size-sensitive-overlap' ):
 			sim = GraphStories.overlapFor2Sets(firstSet, secondSet)

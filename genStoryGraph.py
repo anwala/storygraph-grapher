@@ -15,34 +15,35 @@ from os.path import dirname, abspath
 from multiprocessing import Pool
 from subprocess import check_output
 
-from genericCommon import createFolderAtPath
-from genericCommon import getFromDict
-from genericCommon import setInDict
-from genericCommon import extractFavIconFromHTML
-from genericCommon import getDedupKeyForURI
-from genericCommon import getURIHash
-from genericCommon import dereferenceURI
-from genericCommon import clean_html
-from genericCommon import genericErrorInfo
-from genericCommon import getDomain
-from genericCommon import getEntitiesFromText
-from genericCommon import nlpIsServerOn
-from genericCommon import nlpServerStartStop
-from genericCommon import nlpGetEntitiesFromText
-from genericCommon import getTopKTermsListFromText
-from genericCommon import extractPageTitleFromHTML
-from genericCommon import expandUrl
-from genericCommon import getConfigParameters
-from genericCommon import writeTextToFile
-from genericCommon import readTextFromFile
-from genericCommon import archiveNowProxy
+from util import getFromDict
+from util import setInDict
+from util import extractFavIconFromHTML
+from util import getDedupKeyForURI
+from util import getURIHash
+from util import dereferenceURI
+from util import clean_html
+from util import genericErrorInfo
+from util import getDomain
+from util import getEntitiesFromText
+from util import nlpIsServerOn
+from util import nlpServerStartStop
+from util import nlpGetEntitiesFromText
+from util import getTopKTermsListFromText
+from util import extractPageTitleFromHTML
+from util import expandUrl
+from util import getConfigParameters
+from util import writeTextToFile
+from util import readTextFromFile
+from util import archiveNowProxy
+from util import sanitizeText
 
-from genericCommon import getDictFromFile
-from genericCommon import dumpJsonToFile
-from genericCommon import isExclusivePunct
-from genericCommon import getHashForText
-from genericCommon import isStopword
-from genericCommon import getISO8601Timestamp
+from util import getDictFromFile
+from util import dumpJsonToFile
+from util import isExclusivePunct
+from util import getHashForText
+from util import isStopword
+from util import getISO8601Timestamp
+from util import parseStrDate
 
 from GraphStories import GraphStories
 import graphAnnotate
@@ -59,7 +60,7 @@ def localErrorHandler():
 
 	if( len(globalConfig['graphName']) != 0 ):
 		logFolder = '/data/logs/' + globalConfig['graphName'] + '/'
-		createFolderAtPath(logFolder)
+		os.makedirs(logFolder, exist_ok=True)
 
 	if( len(logFolder) != 0 ):
 		errorFile = logFolder + 'errors.txt'
@@ -90,13 +91,13 @@ def getMementoRSSFeed(uri):
 
 	return id_rssMemento, rssFeed
 
-def fetchLinksFromFeeds(uri, countOfLinksToGet=1):
+def fetchLinksFromFeeds(uri, countOfLinksToGet=1, archiveRSSFlag=True):
 
 	'''
-	For news sources with rss links, get countOfLinksToGet links from uri
+		For news sources with rss links, get countOfLinksToGet links from uri
 
-	param uri: rss link for source to dereference
-	param countOfLinksToGet: the number of news links to extract for uri
+		param uri: rss link for source to dereference
+		param countOfLinksToGet: the number of news links to extract for uri
 	'''
 
 	print('\tfetchLinksFromFeeds(), countOfLinksToGet:', countOfLinksToGet)
@@ -124,7 +125,12 @@ def fetchLinksFromFeeds(uri, countOfLinksToGet=1):
 	verbose = False
 
 	#attempt to process memento of rss - start
-	id_rssMemento, rssFeed = getMementoRSSFeed(uri)
+	if( archiveRSSFlag ):
+		id_rssMemento, rssFeed = getMementoRSSFeed(uri)
+	else:
+		print('\t\tarchiveRSSFlag False')
+		id_rssMemento = ''
+		rssFeed = {}
 	#attempt to process memento of rss - end
 
 	if( len(rssFeed) == 0 ):
@@ -173,7 +179,7 @@ def fetchLinksFromFeeds(uri, countOfLinksToGet=1):
 
 	return links, rssFeed
 
-def getSourcesFromRSS(rssLinks, maxLinksToExtractPerSource=1):
+def getSourcesFromRSS(rssLinks, maxLinksToExtractPerSource=1, archiveRSSFlag=True):
 
 	if( len(rssLinks) == 0 or maxLinksToExtractPerSource < 1 ):
 		return {}, {}
@@ -194,18 +200,18 @@ def getSourcesFromRSS(rssLinks, maxLinksToExtractPerSource=1):
 	throttle = 0
 	for rssDict in rssLinks:
 
-		if( throttle > 0 ):
+		if( throttle > 0 and archiveRSSFlag ):
 			print('\n\tgetSourcesFromRSS(): throttle IA, sleep:', throttle)
 			time.sleep(throttle)
 
 		prevNow = datetime.now()		
-		links, rssFeed = fetchLinksFromFeeds(rssDict['rss'].strip(), maxLinksToExtractPerSource)
+		links, rssFeed = fetchLinksFromFeeds(rssDict['rss'].strip(), maxLinksToExtractPerSource, archiveRSSFlag=archiveRSSFlag)
 
 		
 		for uriDict in links:
 			
 			uriDict['link'] = uriDict['link'].strip()
-			domain = getDomain(uriDict['link'])
+			domain = getDomain(uriDict['link'], includeSubdomain=True)
 
 			if( len(domain) == 0 ):
 				continue
@@ -307,6 +313,14 @@ def parallelNER(inputDict):
 
 def parallelNERNew(inputDict):
 	
+	#iso8601Date not used
+	iso8601Date = parseStrDate( inputDict['published'] )
+	if( iso8601Date is None ):
+		iso8601Date = ''
+	else:
+		iso8601Date = iso8601Date.strftime('%Y-%m-%dT%H:%M:%S')
+
+
 	return { 
 		'entities2dList': nlpGetEntitiesFromText(inputDict['textToLabel'],
 		host=corenlpServerHost,
@@ -324,20 +338,6 @@ def setSourceDictDetails(sourceDict):
 		sourceDict['node-details'] = {}
 	sourceDict['extraction-time'] = ''
 
-def sanitizeText(text):
-
-	#temp fix - start
-	#UnicodeEncodeError: 'utf-8' codec can't encode character '\ud83d' in position 3507: surrogates not allowed
-	try:
-		print(text)
-	except UnicodeEncodeError as e:
-		if e.reason == 'surrogates not allowed':
-			text = text.encode('utf-8', 'backslashreplace').decode('utf-8')
-	except:
-		text = ''
-	#temp fix - end
-
-	return text
 
 def getEntitiesAndEnrichSources(sources, paramsDict):
 	#NOTE getEntitiesAndEnrichSourcesSequential DUPLICATES FUNCTIONALITY FOR SIMPLICITY
@@ -409,7 +409,12 @@ def getEntitiesAndEnrichSources(sources, paramsDict):
 		sourceDict['title'] = title
 		sourceDict['text'] = text
 		sourceDict['favicon'] = favicon
-		textColToLabel.append( {'textToLabel': text, 'id': source} )
+		
+		textColToLabel.append({
+			'textToLabel': text, 
+			'id': source,
+			'published': sourceDict['published']
+		})
 	
 	try:
 		workers = Pool(paramsDict['threadPoolCount'])
@@ -778,14 +783,13 @@ def genGraph(defaultConfig, config):
 		sources = censorGraphStories(sources)
 
 	settings = {	
-					'debug-flag': config['debug-flag'],
-					'timestamp': sources['timestamp'],
-					'name': config['name'],
-					'history-count': config['history-count']
-			}
+		'debug-flag': config['debug-flag'],
+		'timestamp': sources['timestamp'],
+		'name': config['name'],
+		'history-count': config['history-count']
+	}
 	
 	writeGraph( settings, sources )
-
 
 def writeGraph(settings, sources):
 
@@ -803,14 +807,14 @@ def writeGraph(settings, sources):
 		date = settings['timestamp'].split('T')[0].split('-')
 		graphIndexFilename = '/data/graph-cursors/'		
 
-		createFolderAtPath(outputPath)
+		os.makedirs(outputPath, exist_ok=True)
 		
 		graphIndexFilename = graphIndexFilename + settings['name'] + '/' + 'graphIndex.json'
 		outfilename = outputPath + date[0] + '/'
-		createFolderAtPath(outfilename)
+		os.makedirs(outfilename, exist_ok=True)
 
 		outfilename = outfilename + date[1] + '/'
-		createFolderAtPath(outfilename)
+		os.makedirs(outfilename, exist_ok=True)
 
 		outfilename = outfilename + date[2] + '/'
 		if( os.path.exists(outfilename) == False ):
@@ -838,12 +842,29 @@ def writeGraph(settings, sources):
 		else:
 			menu = {}
 
-		menu[latestGraphName] = {'timestamp': sources['timestamp']}
+		menu[latestGraphName] = {
+			'timestamp': sources['timestamp'],
+			'graph-details': {
+				'max-avg-degree': getGraphMaxAvgDeg(sources)
+			}
+		}
 		dumpJsonToFile(menuFilename, menu)
 		#update menu - end
 	except:
 		localErrorHandler()
-	
+
+def getGraphMaxAvgDeg(graph):
+
+	if( 'connected-comps' not in graph ):
+		return -1
+
+	maxAvgDegree = -1
+	for conComp in graph['connected-comps']:
+		
+		if( conComp['avg-degree'] > maxAvgDegree ):
+			maxAvgDegree = conComp['avg-degree']
+
+	return maxAvgDegree
 
 def getUpdateGraphIndex(historyCount, graphIndexFilename, curPath):
 	
@@ -951,8 +972,5 @@ if __name__ == "__main__":
 			if( sleepSecondsRemaining > 0 ):
 				print('\tsleep seconds:', sleepSecondsRemaining)
 				sleepCountDown(sleepSecondsRemaining)
-
-	
-	
 
 	
