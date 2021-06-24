@@ -1055,6 +1055,7 @@ def nlpGetEntitiesFromText(text, host='localhost', iso8601Date='', labelLst=['PE
 							entity['text'] = parsedDate.isoformat()[:19]
 						else:
 							entity['text'] = ''
+							continue
 				#debug - end
 					
 				if( params['listEntityContainer'] ):

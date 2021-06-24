@@ -730,6 +730,23 @@ def recusiveSetDefault(defaultConfig, config, count=0, parents=[]):
         for entry in defaultConfig:
             recusiveSetDefault(entry, config=config, count=count+1, parents=parents)
 
+def addSkipEntities( sources, skipTheseEntities ):
+
+    if( len(skipTheseEntities) == 0 ):
+        return
+
+    for source, sourceDict in sources.items():
+        
+        allEnts = sourceDict.pop('entities')
+        sourceDict['entities'] = []
+        sourceDict['other-entities'] = []
+
+        for ent in allEnts:
+            if( ent['class'] in skipTheseEntities ):
+                sourceDict['other-entities'].append(ent)
+            else:
+                sourceDict['entities'].append(ent)
+
 def genGraph(defaultConfig, config):
     
     
@@ -754,8 +771,11 @@ def genGraph(defaultConfig, config):
     entityBuildingParams['debugFlag'] = config['debug-flag']
     entityBuildingParams['cacheFlag'] = config['cache-html-flag']
 
+    print('\twould skip entities in clustering:', config['clust-skip-ent-classes'])
+
     sources, domainRSSFeedsDict = getSourcesFromRSS( config['feed-parameters']['feeds'], maxLinksToExtractPerSource=config['feed-parameters']['max-extract-links-count'] )    
     sources, nerVersion = getEntitiesAndEnrichSources(sources, entityBuildingParams)
+    addSkipEntities( sources, config['clust-skip-ent-classes'] )
     sources = runGraphStories(sources, minSim=config['graph-parameters']['min-sim'], maxIter=config['graph-parameters']['max-iterations'], thresholds=thresholds)
     
     if( config['debug-flag'] ):
@@ -951,6 +971,7 @@ def getGenericArgs():
     return parser
 
 if __name__ == "__main__":
+
     parser = getGenericArgs()
     args = parser.parse_args()
     
