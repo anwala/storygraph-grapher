@@ -199,7 +199,7 @@ def expandUrl(url, secondTryFlag=True, timeoutInSeconds='10'):
 	Part B: returns the lasts good url if the last response is not a 200.
 	'''
 	url = url.strip()
-	if( len(url) == 0 ):
+	if( url == '' ):
 		return ''
 	
 	try:
@@ -214,13 +214,12 @@ def expandUrl(url, secondTryFlag=True, timeoutInSeconds='10'):
 
 		for line in output:
 			line = line.strip()
-			if( len(line) == 0 ):
+			if( line == '' ):
 				continue
 
-			indexOfLocation = line.lower().find('location:')
-			if( indexOfLocation != -1 ):
+			if( line.lower().startswith('location:') ):
 				#location: is 9
-				locations.append(line[indexOfLocation + 9:].strip())
+				locations.append( line[9:].strip() )
 
 		if( len(locations) != 0 ):
 			#traverse location in reverse: account for redirects to path
