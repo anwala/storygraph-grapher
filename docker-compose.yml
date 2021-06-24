@@ -9,6 +9,6 @@ services:
     #restart: always
     build:
       context: .
-    command: './genStoryGraph.py stanfordcorenlp'
+    command: './genStoryGraph.py'
     volumes:
       - /data/anwala/IMLS/StoryGraph:/data

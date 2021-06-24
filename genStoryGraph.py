@@ -392,17 +392,21 @@ def getEntitiesAndEnrichSources(sources, paramsDict):
         print('\t', count, 'of', total)
         count += 1
 
-        if( len(html) == 0 ):
+        if( html == '' ):
             continue
 
         title = extractPageTitleFromHTML(html)
         text = clean_html(html)
+        text = sanitizeText(text)
         favicon = extractFavIconFromHTML(html, sourceDict['link'])
 
-        if( len(text) == 0 ):
+        print('\thtml.len:', len(html))
+        print('\ttext.len:', len(text))
+        print()
+        if( text == '' ):
             continue
 
-        text = sanitizeText(text)
+        
         sourceDict['title'] = title
         sourceDict['text'] = text
         sourceDict['favicon'] = favicon
@@ -947,7 +951,6 @@ def getGenericArgs():
     return parser
 
 if __name__ == "__main__":
-    
     parser = getGenericArgs()
     args = parser.parse_args()
     
