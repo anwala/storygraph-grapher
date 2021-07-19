@@ -10,7 +10,7 @@ import time
 from functools import reduce
 from os.path import dirname, abspath
 
-from boilerpipe.extract import Extractor
+from boilerpy3 import extractors
 from bs4 import BeautifulSoup
 from dateparser import parse as parseDateStr
 from datetime import datetime
@@ -61,16 +61,15 @@ def archiveNowProxy(uri, params=None):
 	
 	return ''
 
-def clean_html(html, method='python-boilerpipe'):
+def clean_html(html, method='boilerpy3', reportFailure=True):
 	
-	if( len(html) == 0 ):
+	if( html == '' ):
 		return ''
 
-	#experience problem of parallelizing, maybe due to: https://stackoverflow.com/questions/8804830/python-multiprocessing-pickling-error
-	if( method == 'python-boilerpipe' ):
+	if( method == 'boilerpy3' ):
 		try:
-			extractor = Extractor(extractor='ArticleExtractor', html=html)
-			return extractor.getText()
+			extractor = extractors.ArticleExtractor(raise_on_failure=reportFailure)
+			return extractor.get_content(html)
 		except:
 			genericErrorInfo()
 	elif( method == 'nltk' ):
@@ -199,7 +198,7 @@ def expandUrl(url, secondTryFlag=True, timeoutInSeconds='10'):
 	Part B: returns the lasts good url if the last response is not a 200.
 	'''
 	url = url.strip()
-	if( len(url) == 0 ):
+	if( url == '' ):
 		return ''
 	
 	try:
@@ -214,13 +213,12 @@ def expandUrl(url, secondTryFlag=True, timeoutInSeconds='10'):
 
 		for line in output:
 			line = line.strip()
-			if( len(line) == 0 ):
+			if( line == '' ):
 				continue
 
-			indexOfLocation = line.lower().find('location:')
-			if( indexOfLocation != -1 ):
+			if( line.lower().startswith('location:') ):
 				#location: is 9
-				locations.append(line[indexOfLocation + 9:].strip())
+				locations.append( line[9:].strip() )
 
 		if( len(locations) != 0 ):
 			#traverse location in reverse: account for redirects to path
@@ -1057,6 +1055,7 @@ def nlpGetEntitiesFromText(text, host='localhost', iso8601Date='', labelLst=['PE
 							entity['text'] = parsedDate.isoformat()[:19]
 						else:
 							entity['text'] = ''
+							continue
 				#debug - end
 					
 				if( params['listEntityContainer'] ):
@@ -1079,10 +1078,7 @@ def sanitizeText(text):
 	try:
 		text.encode('utf-8')
 	except UnicodeEncodeError as e:
-		if e.reason == 'surrogates not allowed':	
-			text = text.encode('utf-8', 'backslashreplace').decode('utf-8')
-	except:
-		text = ''
+		text = text.encode('utf-8', 'backslashreplace').decode('utf-8')
 
 	return text
 #text - end

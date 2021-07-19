@@ -2,7 +2,7 @@ beautifulsoup4
 dateparser
 py-dateutil
 feedparser==5.2.1
-git+git://github.com/misja/python-boilerpipe.git
+boilerpy3==1.0.4
 networkx==1.11
 requests>=2.20 
 tldextract==2.1.0
