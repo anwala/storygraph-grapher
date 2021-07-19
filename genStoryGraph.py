@@ -967,7 +967,8 @@ def getGenericArgs():
     
     parser.add_argument('--nlp-server-host', default='stanfordcorenlp', help='Stanford NLP server host')
     parser.add_argument('-p', '--data-path', default='/data/', help='Storage location (graphs, config, etc)')
-
+    parser.add_argument('-l', '--stay-alive', action='store_true', help='Run continuously in infinite loop')
+    
     return parser
 
 if __name__ == "__main__":
@@ -977,7 +978,7 @@ if __name__ == "__main__":
     
     args.data_path = args.data_path.strip()
     args.data_path = args.data_path if args.data_path.endswith('/') else args.data_path + '/'
-    
+
     while( True ):
 
         allParameters = getConfigParameters( f'{args.data_path}generic/serviceClusterStories.config.json' )
@@ -996,10 +997,12 @@ if __name__ == "__main__":
     
         delta = datetime.now() - prevNow
         print('\tdelta seconds:', delta.seconds)
-        sleepSecondsRemaining = allParameters['default-config']['sleep-seconds'] - delta.seconds
+
+        if( args.stay_alive is not True ):
+            break
         
+        sleepSecondsRemaining = allParameters['default-config']['sleep-seconds'] - delta.seconds
         if( sleepSecondsRemaining > 0 ):
             print('\tsleep seconds:', sleepSecondsRemaining)
             sleepCountDown(sleepSecondsRemaining)
-
     

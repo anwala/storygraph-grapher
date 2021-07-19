@@ -1,6 +1,6 @@
-FROM python:3
+FROM python:3.7
 
-LABEL maintainer="Alexander Nwala <anwala@cs.odu.edu>"
+LABEL maintainer="Alexander Nwala <alexandernwala@gmail.com>"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends default-jre \
