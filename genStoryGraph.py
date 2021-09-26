@@ -4,6 +4,7 @@ import argparse
 import copy
 import feedparser
 import graphAnnotate
+import gzip
 import importlib
 import json
 import math
@@ -826,51 +827,29 @@ def writeGraph(settings, sources):
 
         #create folders if not exist - start
         date = settings['timestamp'].split('T')[0].split('-')
-        graphIndexFilename = f'{args.data_path}graph-cursors/'        
-
-        os.makedirs(outputPath, exist_ok=True)
+        os.makedirs(outputPath + date[0] + '/' + date[1] + '/' + date[2] + '/', exist_ok=True)
         
-        graphIndexFilename = graphIndexFilename + settings['name'] + '/' + 'graphIndex.json'
-        outfilename = outputPath + date[0] + '/'
-        os.makedirs(outfilename, exist_ok=True)
+        oneDayGraphFileName = '{}{}/{}/{}/graphs-'.format( outputPath, date[0], date[1], date[2] )
+        oneDayGraphFileName += '{}-{}-{}.jsonl.gz'.format( date[0], date[1], date[2] )
 
-        outfilename = outfilename + date[1] + '/'
-        os.makedirs(outfilename, exist_ok=True)
-
-        outfilename = outfilename + date[2] + '/'
-        if( os.path.exists(outfilename) == False ):
-            check_output(['mkdir', outfilename])
-            #init graph index since new folder
-            dumpJsonToFile( graphIndexFilename, defaultGraphIndexDict )
-        #create folders if not exist - end
-
-        if( os.path.exists(graphIndexFilename) == False ):
-            dumpJsonToFile( graphIndexFilename, defaultGraphIndexDict )
-
-        graphCursor = getUpdateGraphIndex( settings['history-count'], graphIndexFilename, date[0] + '/' + date[1] + '/' + date[2] )
-        latestGraphName = 'graph' + graphCursor + '.json'
-        dumpJsonToFile( outfilename + latestGraphName, sources, indentFlag=False )
-
-        #create tar file, delete json - start
-        check_output(['gzip', outfilename + latestGraphName])
-        #create tar file, delete json - end
-
-        #update menu - start
-        menuFilename = outfilename + 'menu.json'
+        oneDayOffsetFileName = '{}{}/{}/{}/byte-offsets-'.format( outputPath, date[0], date[1], date[2] )
+        oneDayOffsetFileName += '{}-{}-{}.txt'.format( date[0], date[1], date[2] )
         
-        if( os.path.exists(menuFilename) ):
-            menu = getDictFromFile(menuFilename)
-        else:
-            menu = {}
+        offset_outfile = open(oneDayOffsetFileName, 'a')
+        with open(oneDayGraphFileName, 'ab') as outfile:
+            sources = json.dumps(sources, ensure_ascii=False) + '\n'
+            sources = sources.encode()
+            
+            #new - start
+            start_offset = outfile.tell()
+            compressed_sources = gzip.compress(sources)
+            outfile.write(compressed_sources)
+            end_offset = outfile.tell() - 1
 
-        menu[latestGraphName] = {
-            'timestamp': sources['timestamp'],
-            'graph-details': {
-                'max-avg-degree': getGraphMaxAvgDeg(sources)
-            }
-        }
-        dumpJsonToFile(menuFilename, menu)
-        #update menu - end
+            offset_outfile.write( '{}, {}, {}\n'.format(settings['timestamp'], start_offset, end_offset) )
+            #new - end
+
+        offset_outfile.close()
     except:
         localErrorHandler()
 
@@ -886,25 +865,6 @@ def getGraphMaxAvgDeg(graph):
             maxAvgDegree = conComp['avg-degree']
 
     return maxAvgDegree
-
-def getUpdateGraphIndex(historyCount, graphIndexFilename, curPath):
-    
-    graphIndexDetails = getConfigParameters(graphIndexFilename)
-    if( 'cursor' in graphIndexDetails ):
-        graphCursor = graphIndexDetails['cursor']
-    else:
-        graphCursor = -1
-
-    graphCursor += 1
-    if( graphCursor >= historyCount ):
-        graphCursor = 0
-    
-    graphIndexDetails['cursor'] = graphCursor
-    graphIndexDetails['cur-path'] = curPath
-
-    dumpJsonToFile( graphIndexFilename, graphIndexDetails )    
-
-    return str(graphCursor)
 
 def getUpdateNextGraphIndex_obsolete(historyCount, graphIndexFilename):
     
