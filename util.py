@@ -582,60 +582,6 @@ def writeTextToFile(outfilename, text, extraParams=None):
 
 #text - start
 
-def getEntitiesFromText(plaintext, outfilename='tempNERTextToTag.txt'):
-	#print('\ngetEntitiesFromText::getEntities() - start')
-
-	if( len(plaintext) == 0 ):
-		return []
-
-	filePathToTag = './NER-TEXT/'
-	try:
-		os.makedirs(filePathToTag, exist_ok=True)
-		filePathToTag += outfilename
-
-		outfile = open(filePathToTag, 'w')
-		outfile.write(plaintext)
-		outfile.close()
-	except:
-		genericErrorInfo()
-		return []
-	
-	entities = []
-	try:
-		#tagedText = check_output([workingFolder() + 'runJavaNER.sh'])
-		tagedText = check_output(['java', '-mx500m', '-cp', workingFolder() + 'stanford-ner-3.4.jar', 'edu.stanford.nlp.ie.crf.CRFClassifier', '-loadClassifier', workingFolder() + 'english.muc.7class.distsim.crf.ser.gz', '-textFile', filePathToTag, '-outputFormat', 'inlineXML', '2>', '/dev/null'])
-		tagedText = str(tagedText)
-
-		INLINEXML_EPATTERN  = re.compile(r'<([A-Z]+?)>(.+?)</\1>')
-		
-		dedupDict = {}
-		for match in INLINEXML_EPATTERN.finditer(tagedText):
-			#print(match.group(0))
-			#match.group(2) is entity
-			#match.group(1) is class
-
-			if( match.group(2) not in dedupDict ):
-				entityAndClass = [match.group(2), match.group(1)]
-				entities.append(entityAndClass)
-				dedupDict[match.group(2)] = False
-
-		#dict which separates classes of entities into different arrays - start
-		#entities = (match.groups() for match in INLINEXML_EPATTERN.finditer(tagedText))
-		#entities = dict((first, list(map(itemgetter(1), second))) for (first, second) in groupby(sorted(entities, key=itemgetter(0)), key=itemgetter(0)))
-		#for entityClass, entityClassList in entities.items():
-			#entities[entityClass] = list(set(entityClassList))
-		#dict which separates classes of entities into different arrays - end
-
-		#remove temp file - start
-		check_output(['rm', filePathToTag])
-		#remove temp file - end
-
-	except:
-		genericErrorInfo()
-
-	#print('\ngetEntitiesFromText::getEntities() - end')
-	return entities
-
 def getStopwordsDict():
 
 	stopwordsDict = {
@@ -942,9 +888,9 @@ def getStrHash(txt):
 	hash_object = hashlib.md5(txt.encode())
 	return hash_object.hexdigest()
 
-def getTopKTermsListFromText(text, k, minusStopwords=True):
+def getTopKTermsListFromText(textOrTokens, k, minusStopwords=True):
 
-	if( len(text) == 0 ):
+	if( len(textOrTokens) == 0 or k < 1 ):
 		return []
 
 	stopWordsDict = {}
@@ -953,9 +899,9 @@ def getTopKTermsListFromText(text, k, minusStopwords=True):
 
 	topKTermDict = {}
 	topKTermsList = []
-	text = text.split(' ')
+	textOrTokens = textOrTokens.split(' ') if isinstance(textOrTokens, str) else textOrTokens
 
-	for term in text:
+	for term in textOrTokens:
 		term = term.strip().lower()
 		
 		if( len(term) == 0 or term in stopWordsDict or isExclusivePunct(term) == True ):
@@ -992,6 +938,73 @@ def isStopword(term):
 		return True
 	else:
 		return False
+
+def get_top_k_terms(text_or_tokens, k, class_name=''):    
+    top_k_terms = getTopKTermsListFromText( text_or_tokens, k )
+    
+    if( class_name == '' ):
+        return [{'entity': e[0], 'label': f'TOP_{k}_TERM'} for e in top_k_terms]
+    else:
+        return [{'entity': e[0], 'label': class_name} for e in top_k_terms]
+
+def get_spacy_entities(spacy_ents, txt, top_k_terms=[], base_ref_date=datetime.now(), labels_lst=[], **kwargs):
+    
+    kwargs.setdefault('output_2d_lst', False)
+    '''
+        #spacy entities: 
+            nlp = spacy.load('en_core_web_sm')
+            nlp.get_pipe("ner").labels
+            ('ORG', 'EVENT', 'NORP', 'ORDINAL', 'LOC', 'FAC', 'DATE', 'WORK_OF_ART', 'TIME', 'GPE', 'LANGUAGE', 'LAW', 'QUANTITY', 'PRODUCT', 'PERCENT', 'CARDINAL', 'PERSON', 'MONEY')
+    '''
+    txt = txt.strip()
+    if( txt == '' ):
+        return []
+
+    ents_dedup = set()
+    final_ents = []
+    
+    for e in spacy_ents:
+
+        ent_str = e.text
+        if( labels_lst != [] and e.label_ not in labels_lst ):
+            continue
+
+        #normalize date - start
+        if( e.label_ == 'DATE' ):
+            
+            parsed_date = parseDateStr( ent_str, settings={'RELATIVE_BASE': base_ref_date} )
+            if( parsed_date is None ):
+                continue
+
+            ent_str = parsed_date.strftime('%Y-%m-%dT%H:%M:%S')
+        #normalize date - end
+
+        ent_key = ent_str.lower() + e.label_
+        if( ent_key in ents_dedup ):
+            continue
+
+        ents_dedup.add(ent_key)
+        if( kwargs['output_2d_lst'] is True ):
+            final_ents.append( [ent_str, e.label_] )
+        else:
+            final_ents.append({ 'entity': ent_str, 'label': e.label_ })
+
+
+    #add top k terms & avoid duplicates - start
+    for e in top_k_terms:
+
+        ent_key = e['entity'].lower() + e['label']
+        if( ent_key in ents_dedup ):
+            continue
+
+        ents_dedup.add(ent_key)
+        if( kwargs['output_2d_lst'] is True ):
+            final_ents.append([ e['entity'], e['label'] ])
+        else:
+            final_ents.append({ 'entity': e['entity'], 'label': e['label'] })
+    #add top k terms & avoid duplicates - end
+
+    return final_ents
 
 #iso8601Date: YYYY-MM-DDTHH:MM:SS
 def nlpGetEntitiesFromText(text, host='localhost', iso8601Date='', labelLst=['PERSON','LOCATION','ORGANIZATION','DATE','MONEY','PERCENT','TIME'], params=None):
@@ -1129,9 +1142,6 @@ def getConfigParameters(configPathFilename, keyValue=''):
 		genericErrorInfo()
 
 	return returnValue
-
-def getISO8601Timestamp():
-	return datetime.utcnow().isoformat() + 'Z'
 
 def genericParseDate(dateStr):
 	from dateutil.parser import parse

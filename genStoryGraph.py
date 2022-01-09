@@ -9,6 +9,8 @@ import importlib
 import json
 import math
 import os
+import re
+import spacy
 import sys
 import time
 
@@ -31,17 +33,13 @@ from util import getConfigParameters
 from util import getDedupKeyForURI
 from util import getDictFromFile
 from util import getDomain
-from util import getEntitiesFromText
 from util import getFromDict
 from util import getHashForText
-from util import getISO8601Timestamp
-from util import getTopKTermsListFromText
+from util import get_spacy_entities
+from util import get_top_k_terms
 from util import getURIHash
 from util import isExclusivePunct
 from util import isStopword
-from util import nlpGetEntitiesFromText
-from util import nlpIsServerOn
-from util import nlpServerStartStop
 from util import parseStrDate
 from util import readTextFromFile
 from util import sanitizeText
@@ -294,8 +292,8 @@ def getTokenLabelsForText(text, label):
         return []
 
     labeledTokens = []
-    text = text.split(' ')
-    
+    text = re.findall(r'(?u)\b[a-zA-Z\'\’-]+[a-zA-Z]+\b|\d+[.,]?\d*', text)
+
     for tok in text:
         tok = tok.strip()
         
@@ -306,24 +304,19 @@ def getTokenLabelsForText(text, label):
 
     return labeledTokens
 
-def parallelNER(inputDict):
-    return { 'entities2dList': getEntitiesFromText(inputDict['textToLabel'], inputDict['id'] + '.txt'), 'id': inputDict['id'] }
-
 def parallelNERNew(inputDict):
     
-    #iso8601Date not used
-    iso8601Date = parseStrDate( inputDict['published'] )
-    if( iso8601Date is None ):
-        iso8601Date = ''
-    else:
-        iso8601Date = iso8601Date.strftime('%Y-%m-%dT%H:%M:%S')
-
+    nlp = spacy.load('en_core_web_sm')
+    spacy_doc = nlp( inputDict['textToLabel'] )
+    top_k_terms = get_top_k_terms( [ t.text for t in spacy_doc], inputDict['addTopKTermsFlag'] )
 
     return { 
-        'entities2dList': nlpGetEntitiesFromText(inputDict['textToLabel'],
-        host=args.nlp_server_host,
-        labelLst=['PERSON', 'LOCATION', 'ORGANIZATION', 'MONEY', 'PERCENT', 'DATE', 'TIME'],
-        params={'normalizedTimeNER': True}
+        'entities2dList': get_spacy_entities(spacy_doc.ents, 
+        txt=inputDict['textToLabel'],
+        top_k_terms=top_k_terms,
+        base_ref_date=datetime.now(),
+        labels_lst=list(nlp.get_pipe('ner').labels),
+        output_2d_lst=True
     ), 'id': inputDict['id'] }
 
 def setSourceDictDetails(sourceDict):
@@ -338,17 +331,9 @@ def setSourceDictDetails(sourceDict):
 
 
 def getEntitiesAndEnrichSources(sources, paramsDict):
-    #NOTE getEntitiesAndEnrichSourcesSequential DUPLICATES FUNCTIONALITY FOR SIMPLICITY
-    #NOTE getEntitiesAndEnrichSourcesSequential DUPLICATES FUNCTIONALITY FOR SIMPLICITY
-    #NOTE getEntitiesAndEnrichSourcesSequential DUPLICATES FUNCTIONALITY FOR SIMPLICITY
-    #NOTE getEntitiesAndEnrichSourcesSequential DUPLICATES FUNCTIONALITY FOR SIMPLICITY
-    #NOTE getEntitiesAndEnrichSourcesSequential DUPLICATES FUNCTIONALITY FOR SIMPLICITY
     print('\ngetEntities()')
 
     #check/set defaults - start
-    if( 'addTitleClass' not in paramsDict ):
-        paramsDict['addTitleClass'] = False
-
     if( 'addTopKTermsFlag' not in paramsDict ):
         paramsDict['addTopKTermsFlag'] = 0
 
@@ -365,9 +350,6 @@ def getEntitiesAndEnrichSources(sources, paramsDict):
         paramsDict['cacheFlag'] = False
     #check/set defaults - end
 
-    if( paramsDict['threadPoolCount'] == 0 ):
-        return getEntitiesAndEnrichSourcesSequential(sources, paramsDict)
-
 
     print('\tthreadPoolCount:', paramsDict['threadPoolCount'])
 
@@ -383,7 +365,6 @@ def getEntitiesAndEnrichSources(sources, paramsDict):
             html = derefURICache( sourceDict['link'] )
         else:
             html = dereferenceURI( sourceDict['link'], paramsDict['derefSleep'] )
-        
         
         #set defaults - start
         setSourceDictDetails(sourceDict)
@@ -407,12 +388,12 @@ def getEntitiesAndEnrichSources(sources, paramsDict):
         if( text == '' ):
             continue
 
-        
         sourceDict['title'] = title
         sourceDict['text'] = text
         sourceDict['favicon'] = favicon
         
         textColToLabel.append({
+            'addTopKTermsFlag': paramsDict['addTopKTermsFlag'],
             'textToLabel': text, 
             'id': source,
             'published': sourceDict['published']
@@ -420,17 +401,10 @@ def getEntitiesAndEnrichSources(sources, paramsDict):
     
     try:
         workers = Pool(paramsDict['threadPoolCount'])
-        serverOn = nlpIsServerOn(args.nlp_server_host)
-
-        if( serverOn ):
-            print('\tNER version: 3.8.0')
-            listOfEntities2dList = workers.map(parallelNERNew, textColToLabel)
-            nerVersion = '3.8.0'
-        else:
-            print('\tNER version: old')
-            #use old ner version since new server was not able to be started
-            listOfEntities2dList = workers.map(parallelNER, textColToLabel)
-            nerVersion = 'old'
+        
+        print('\tNER version: Spacy v3.2.1')
+        listOfEntities2dList = workers.map(parallelNERNew, textColToLabel)
+        nerVersion = f'Spacy {spacy.__version__}'
 
         workers.close()
         workers.join()
@@ -442,21 +416,8 @@ def getEntitiesAndEnrichSources(sources, paramsDict):
         
         source = entitiesDetailsDict['id']
         sources[source]['entities'] = entitiesDetailsDict['entities2dList']
-        
-        if( paramsDict['addTitleClass'] ):
-            sources[source]['entities'] += getTokenLabelsForText( sources[source]['title'], 'TITLE' )
-
-        #add top addTopKTermsFlag terms - start
-        if( paramsDict['addTopKTermsFlag'] > 0 ):
-            topKTerms = getTopKTermsListFromText( sources[source]['text'], paramsDict['addTopKTermsFlag'] )
-
-            allTerms = ''
-            for termCountTup in topKTerms:
-                if( len(termCountTup) != 0 ):
-                    allTerms += termCountTup[0] + ' '
-
-            sources[source]['entities'] += getTokenLabelsForText( allTerms, 'TOP'+str(paramsDict['addTopKTermsFlag'])+'TERM' )
-        #add top addTopKTermsFlag terms - end
+        #adding title tokens could lead do duplicates, but statement kept for simplicity since there are no adverse effects
+        sources[source]['entities'] += getTokenLabelsForText( sources[source]['title'], 'TITLE' )
 
         #clear some fields
         sources[source]['extraction-time'] = datetime.now().isoformat()
@@ -475,77 +436,6 @@ def derefURICache(uri):
         writeTextToFile(uriFilename, html)
         return html
 
-def getEntitiesAndEnrichSourcesSequential(sources, paramsDict):
-
-    print('\ngetEntities Sequential():')
-
-    #check/set defaults - start
-    if( 'addTitleClass' not in paramsDict ):
-        paramsDict['addTitleClass'] = False
-
-    if( 'addTopKTermsFlag' not in paramsDict ):
-        paramsDict['addTopKTermsFlag'] = 0
-
-    if( 'derefSleep' not in paramsDict ):
-        paramsDict['derefSleep'] = 0
-
-    if( 'debugFlag' not in paramsDict ):
-        paramsDict['debugFlag'] = False
-
-    if( 'cacheFlag' not in paramsDict ):
-        paramsDict['cacheFlag'] = False
-    #check/set defaults - end
-
-    for source, sourceDict in sources.items():
-        
-        if( paramsDict['debugFlag'] and paramsDict['cacheFlag']  ):
-            html = derefURICache( sourceDict['link'] )
-        else:
-            html = dereferenceURI( sourceDict['link'], paramsDict['derefSleep'] )
-        
-        #set defaults - start
-        setSourceDictDetails(sourceDict)
-        #set defaults - end
-
-        if( len(html) == 0 ):
-            continue
-
-        title = extractPageTitleFromHTML(html)
-        text = clean_html(html)
-        favicon = extractFavIconFromHTML( html, sourceDict['link'] )
-
-        if( len(text) == 0 ):
-            continue
-
-        entities2dList = getEntitiesFromText(text)
-
-        #print('\n\ttitle:', title)
-        #print('\tlink:', sourceDict['link'])
-        #print('\tlen:', len(text.split(' ')), '\n')
-
-        if( paramsDict['addTitleClass'] ):
-            entities2dList = entities2dList + getTokenLabelsForText(title, 'TITLE')
-
-        #add top addTopKTermsFlag terms - start
-        if( paramsDict['addTopKTermsFlag'] > 0 ):
-            topKTerms = getTopKTermsListFromText(text, paramsDict['addTopKTermsFlag'])
-
-            allTerms = ''
-            for termCountTup in topKTerms:
-                if( len(termCountTup) != 0 ):
-                    allTerms += termCountTup[0] + ' '
-
-            entities2dList = entities2dList + getTokenLabelsForText(allTerms, 'TOP'+str(paramsDict['addTopKTermsFlag'])+'TERM')
-        #add top addTopKTermsFlag terms - end
-
-        text = sanitizeText(text)
-        sourceDict['text'] = text
-        sourceDict['title'] = title
-        sourceDict['favicon'] = favicon
-        sourceDict['extraction-time'] = datetime.now().isoformat()
-        sourceDict['entities'] = addDetailsToEntities(entities2dList)
-
-    return sources
 
 def runGraphStories(sources, minSim, maxIter, thresholds):
 
@@ -766,7 +656,6 @@ def genGraph(defaultConfig, config):
     thresholds['event-thresholds'] = config['graph-parameters']['event-thresholds']
 
     entityBuildingParams = {}
-    entityBuildingParams['addTitleClass'] = config['entity-parameters']['add-title-class']
     entityBuildingParams['addTopKTermsFlag'] = config['entity-parameters']['add-top-k-terms-flag']
     entityBuildingParams['threadPoolCount'] = config['entity-parameters']['thread-pool-count']
     entityBuildingParams['debugFlag'] = config['debug-flag']
@@ -787,7 +676,7 @@ def genGraph(defaultConfig, config):
 
     sources['ner-version'] = nerVersion
     #config['rss-feeds'] = {}#domainRSSFeedsDict
-    sources['timestamp'] = getISO8601Timestamp()
+    sources['timestamp'] = datetime.utcnow().isoformat() + 'Z'
 
     #create accessible config - start
     configJsonStr = json.dumps(config)
@@ -925,7 +814,6 @@ def recusiveGetAllKeys(myDict, count=0, parents=[]):
 def getGenericArgs():
     parser = argparse.ArgumentParser(formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=30), description='Generate storygraphs')
     
-    parser.add_argument('--nlp-server-host', default='stanfordcorenlp', help='Stanford NLP server host')
     parser.add_argument('-p', '--data-path', default='/data/', help='Storage location (graphs, config, etc)')
     parser.add_argument('-l', '--stay-alive', action='store_true', help='Run continuously in infinite loop')
     

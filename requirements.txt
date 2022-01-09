@@ -1,8 +1,9 @@
 beautifulsoup4
-dateparser
+dateparser==0.7.2
 py-dateutil
 feedparser==5.2.1
 boilerpy3==1.0.4
 networkx==1.11
 requests>=2.20 
 tldextract==2.1.0
+spacy==3.2.1
