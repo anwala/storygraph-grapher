@@ -14,6 +14,7 @@ from boilerpy3 import extractors
 from bs4 import BeautifulSoup
 from dateparser import parse as parseDateStr
 from datetime import datetime
+from multiprocessing import Pool
 from subprocess import check_output
 from tldextract import extract
 from urllib.parse import urlparse
@@ -187,6 +188,35 @@ def extractPageTitleFromHTML(html):
 		genericErrorInfo()
 
 	return title
+
+def expandURIs(urisLst, threadCount=5, extraParams=None):
+
+	if( extraParams is None ):
+		extraParams = {}
+
+	extraParams.setdefault('printMod', 10)
+
+	if( len(urisLst) == 0 ):
+		return []
+
+	jobsLst = []
+	size = str(len(urisLst))
+	for i in range(int(size)):
+
+		printMsg = ''
+		if( i % extraParams['printMod'] == 0 ):
+			printMsg = '\n\texpandURIs(): ' + str(i) + ' of ' + size + ': ' + urisLst[i]
+		
+		jobsLst.append( {
+			'func': expandUrl, 
+			'args': {'url': urisLst[i]}, 
+			'misc': False, 
+			'print': printMsg
+		})
+
+	resLst = parallelTask(jobsLst, threadCount=threadCount)
+
+	return	[res['output'] for res in resLst]
 
 def expandUrl(url, secondTryFlag=True, timeoutInSeconds='10'):
 
@@ -941,14 +971,13 @@ def isStopword(term):
 
 def get_top_k_terms(text_or_tokens, k, class_name=''):    
     top_k_terms = getTopKTermsListFromText( text_or_tokens, k )
-    
     if( class_name == '' ):
-        return [{'entity': e[0], 'label': f'TOP_{k}_TERM'} for e in top_k_terms]
+        return [{'entity': e[0], 'class': f'TOP_{k}_TERM'} for e in top_k_terms]
     else:
-        return [{'entity': e[0], 'label': class_name} for e in top_k_terms]
+        return [{'entity': e[0], 'class': class_name} for e in top_k_terms]
 
-def get_spacy_entities(spacy_ents, txt, top_k_terms=[], base_ref_date=datetime.now(), labels_lst=[], **kwargs):
-    
+def get_spacy_entities(spacy_ents, top_k_terms=[], base_ref_date=datetime.now(), labels_lst=[], **kwargs):
+	
     kwargs.setdefault('output_2d_lst', False)
     '''
         #spacy entities: 
@@ -956,9 +985,6 @@ def get_spacy_entities(spacy_ents, txt, top_k_terms=[], base_ref_date=datetime.n
             nlp.get_pipe("ner").labels
             ('ORG', 'EVENT', 'NORP', 'ORDINAL', 'LOC', 'FAC', 'DATE', 'WORK_OF_ART', 'TIME', 'GPE', 'LANGUAGE', 'LAW', 'QUANTITY', 'PRODUCT', 'PERCENT', 'CARDINAL', 'PERSON', 'MONEY')
     '''
-    txt = txt.strip()
-    if( txt == '' ):
-        return []
 
     ents_dedup = set()
     final_ents = []
@@ -987,21 +1013,21 @@ def get_spacy_entities(spacy_ents, txt, top_k_terms=[], base_ref_date=datetime.n
         if( kwargs['output_2d_lst'] is True ):
             final_ents.append( [ent_str, e.label_] )
         else:
-            final_ents.append({ 'entity': ent_str, 'label': e.label_ })
+            final_ents.append({ 'entity': ent_str, 'class': e.label_ })
 
 
     #add top k terms & avoid duplicates - start
     for e in top_k_terms:
 
-        ent_key = e['entity'].lower() + e['label']
+        ent_key = e['entity'].lower() + e['class']
         if( ent_key in ents_dedup ):
             continue
 
         ents_dedup.add(ent_key)
         if( kwargs['output_2d_lst'] is True ):
-            final_ents.append([ e['entity'], e['label'] ])
+            final_ents.append([ e['entity'], e['class'] ])
         else:
-            final_ents.append({ 'entity': e['entity'], 'label': e['label'] })
+            final_ents.append({ 'entity': e['entity'], 'class': e['class'] })
     #add top k terms & avoid duplicates - end
 
     return final_ents
@@ -1095,6 +1121,58 @@ def sanitizeText(text):
 
 	return text
 #text - end
+
+#misc - start
+def parallelProxy(job):
+	
+	output = job['func'](**job['args'])
+
+	if( 'print' in job ):
+		if( len(job['print']) != 0 ):
+			print(job['print'])
+
+	return {'input': job, 'output': output, 'misc': job['misc']}
+
+'''
+	jobsLst: {
+				'func': function,
+				'args': {functionArgName0: val0,... functionArgNamen: valn}
+				'misc': ''
+			 }
+	
+	usage example:
+	jobsLst = []
+	keywords = {'uri': 'http://www.odu.edu'}
+	jobsLst.append( {'func': getDedupKeyForURI, 'args': keywords} )
+
+	keywords = {'uri': 'http://www.cnn.com'}
+	jobsLst.append( {'func': getDedupKeyForURI, 'args': keywords} )
+
+	keywords = {'uri': 'http://www.arsenal.com'}
+	jobsLst.append( {'func': getDedupKeyForURI, 'args': keywords} )
+
+	print( parallelTask(jobsLst) )
+'''
+def parallelTask(jobsLst, threadCount=5):
+
+    if( len(jobsLst) == 0 ):
+        return []
+
+    if( threadCount < 2 ):
+        threadCount = 2
+
+    try:
+        workers = Pool(threadCount)
+        resLst = workers.map(parallelProxy, jobsLst)
+
+        workers.close()
+        workers.join()
+    except:
+        genericErrorInfo()
+        '\n\tparallelTask(): error func: ' + str(jobsLst[0]['func'])
+        return []
+
+    return resLst
 
 def genericErrorInfo(errOutfileName='', errPrefix=''):
 	exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -1213,3 +1291,5 @@ def parseStrDate(strDate):
 		genericErrorInfo()
 
 	return None
+
+#misc - end

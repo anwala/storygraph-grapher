@@ -26,6 +26,7 @@ from util import clean_html
 from util import dereferenceURI
 from util import dumpJsonToFile
 from util import expandUrl
+from util import expandURIs
 from util import extractFavIconFromHTML
 from util import extractPageTitleFromHTML
 from util import genericErrorInfo
@@ -88,7 +89,7 @@ def getMementoRSSFeed(uri):
 
     return id_rssMemento, rssFeed
 
-def fetchLinksFromFeeds(uri, countOfLinksToGet=1, archiveRSSFlag=True):
+def fetchLinksFromFeeds(uri, countOfLinksToGet=1, archiveRSSFlag=True, threadPoolCount=5):
 
     '''
         For news sources with rss links, get countOfLinksToGet links from uri
@@ -140,7 +141,7 @@ def fetchLinksFromFeeds(uri, countOfLinksToGet=1, archiveRSSFlag=True):
     else:
         print('\t\trss: use uri-m:', id_rssMemento)
 
-
+    urisToExpand = []
     for i in range(len(rssFeed.entries)):
         entry = rssFeed.entries[i]
 
@@ -150,9 +151,10 @@ def fetchLinksFromFeeds(uri, countOfLinksToGet=1, archiveRSSFlag=True):
             if( 'link' not in entry ):
                 continue
 
+            urisToExpand.append(entry.link)
             tempDict['title'] = ''
             tempDict['published'] = ''
-            tempDict['link'] = expandUrl(entry.link)    
+            tempDict['link'] = entry.link #expandUrl(entry.link)    
             tempDict['rss-uri-m'] = id_rssMemento
             
             if( 'title' in entry ):
@@ -174,9 +176,16 @@ def fetchLinksFromFeeds(uri, countOfLinksToGet=1, archiveRSSFlag=True):
         if( i+1 == countOfLinksToGet ):
             break
 
+    if( len(urisToExpand) != 0 ):
+        
+        urisToExpand = expandURIs(urisToExpand, threadCount=threadPoolCount)
+        if( len(urisToExpand) == len(links) ):
+            for i in range( len(urisToExpand) ):
+                links[i]['link'] = urisToExpand[i]
+
     return links, rssFeed
 
-def getSourcesFromRSS(rssLinks, maxLinksToExtractPerSource=1, archiveRSSFlag=True):
+def getSourcesFromRSS(rssLinks, maxLinksToExtractPerSource=1, archiveRSSFlag=True, threadPoolCount=5):
 
     if( len(rssLinks) == 0 or maxLinksToExtractPerSource < 1 ):
         return {}, {}
@@ -202,7 +211,7 @@ def getSourcesFromRSS(rssLinks, maxLinksToExtractPerSource=1, archiveRSSFlag=Tru
             time.sleep(throttle)
 
         prevNow = datetime.now()        
-        links, rssFeed = fetchLinksFromFeeds(rssDict['rss'].strip(), maxLinksToExtractPerSource, archiveRSSFlag=archiveRSSFlag)
+        links, rssFeed = fetchLinksFromFeeds(rssDict['rss'].strip(), maxLinksToExtractPerSource, archiveRSSFlag=archiveRSSFlag, threadPoolCount=threadPoolCount)
 
         
         for uriDict in links:
@@ -257,27 +266,6 @@ def getSourcesFromRSS(rssLinks, maxLinksToExtractPerSource=1, archiveRSSFlag=Tru
 
     return sourcesDict, domainRSSFeedsDict
 
-def addDetailsToEntities(entities2dList):
-
-    '''
-        entities2dList example:
-        [['Portsmouth', 'LOCATION'], ['Va.', 'LOCATION'], ['Mr. Boyd', 'PERSON'], ['United States', 'LOCATION'], ['Philip M. Stinson', 'PERSON'], ['Bowling Green State University', 'ORGANIZATION'], ['Ohio', 'LOCATION'], ['Justice Department', 'ORGANIZATION'], ['Centers for Disease Control', 'ORGANIZATION'], ['2005', 'DATE'], ['Dr. Stinson', 'PERSON'], ['Albuquerque', 'LOCATION'], ['James Boyd', 'PERSON'], ['Albuquerque Police Department', 'ORGANIZATION'], ['Associated Press', 'ORGANIZATION'], ['Department of Defense', 'ORGANIZATION'], ['Special Forces', 'ORGANIZATION'], ['Mr. Perez', 'PERSON'], ['Randi McGinn', 'PERSON'], ['New York Times', 'ORGANIZATION']]
-    '''
-    dedupDict = {}
-    entitiesList = []
-
-    for entityTuple in entities2dList:
-        
-        entity = entityTuple[0]
-        entityClass = entityTuple[1]
-
-        tempDict = {}
-        tempDict['entity'] = entity
-        tempDict['class'] = entityClass
-        entitiesList.append(tempDict)
-
-    return entitiesList
-
 '''
     mimics getEntitiesFromText to get 2d array of token and token class, e.g.,
     for text = 'Alexandre Desplat' and token class = 'TITLE'
@@ -297,26 +285,25 @@ def getTokenLabelsForText(text, label):
     for tok in text:
         tok = tok.strip()
         
-        if( len(tok) == 0 or isExclusivePunct(tok) == True or isStopword(tok) == True ):
+        if( tok == '' or isExclusivePunct(tok) is True or isStopword(tok) is True ):
             continue
 
-        labeledTokens.append([tok, label])
+        labeledTokens.append({ 'entity': tok, 'class': label })
 
     return labeledTokens
 
 def parallelNERNew(inputDict):
-    
+
     nlp = spacy.load('en_core_web_sm')
-    spacy_doc = nlp( inputDict['textToLabel'] )
+    spacy_doc = nlp( inputDict['text'] )
     top_k_terms = get_top_k_terms( [ t.text for t in spacy_doc], inputDict['addTopKTermsFlag'] )
 
     return { 
-        'entities2dList': get_spacy_entities(spacy_doc.ents, 
-        txt=inputDict['textToLabel'],
+        'entitiesList': get_spacy_entities(spacy_doc.ents, 
         top_k_terms=top_k_terms,
         base_ref_date=datetime.now(),
         labels_lst=list(nlp.get_pipe('ner').labels),
-        output_2d_lst=True
+        output_2d_lst=False
     ), 'id': inputDict['id'] }
 
 def setSourceDictDetails(sourceDict):
@@ -329,8 +316,82 @@ def setSourceDictDetails(sourceDict):
         sourceDict['node-details'] = {}
     sourceDict['extraction-time'] = ''
 
+def parallelTextProcHelper(inputDict):
+
+    source = inputDict['source']
+    link = inputDict['link']
+    paramsDict = inputDict['paramsDict']
+    print(inputDict['printMsg'])
+
+    result = {
+        'addTopKTermsFlag': paramsDict['addTopKTermsFlag'],
+        'id': source,
+        'text': '',
+        'title': '',
+        'favicon': ''
+    }
+
+    if( paramsDict['debugFlag'] and paramsDict['cacheFlag'] ):
+        html = derefURICache( link )
+    else:
+        html = dereferenceURI( link, paramsDict['derefSleep'] )
+
+    if( html == '' ):
+        return result
+
+    result['title'] = extractPageTitleFromHTML(html)
+    result['text'] = clean_html(html)
+    result['text'] = sanitizeText( result['text'] )
+    result['favicon'] = extractFavIconFromHTML(html, link)
+
+    return result
+
+def textProcPipeline(sources, paramsDict):
+
+    jobsLst = []
+    textColToLabel = []
+    total = len(sources)
+
+    print('\nparallelTextProcHelper():')
+    for source, sourceDict in sources.items():
+        
+        #set defaults - start
+        setSourceDictDetails(sourceDict)
+        #set defaults - end
+        
+        printMsg = '\tderef->cleanhtml->sanitize->getfavicon {}, {} of {}'.format(source, len(jobsLst) + 1, total)
+        jobsLst.append({
+            'source': source,
+            'link': sourceDict['link'],
+            'paramsDict': paramsDict,
+            'printMsg': printMsg
+        })
+    
+
+    try:
+        workers = Pool(paramsDict['threadPoolCount'])
+        
+        textColToLabel = workers.map(parallelTextProcHelper, jobsLst)
+        
+        workers.close()
+        workers.join()
+    except:
+        localErrorHandler()
+    
+
+    for res in textColToLabel:
+        if( len(res) == 0 ):
+            continue
+
+        source = res['id']
+        sources[source]['title'] = res['title']
+        sources[source]['text'] = res['text']
+        sources[source]['favicon'] = res['favicon']
+        
+    return textColToLabel
 
 def getEntitiesAndEnrichSources(sources, paramsDict):
+
     print('\ngetEntities()')
 
     #check/set defaults - start
@@ -353,57 +414,15 @@ def getEntitiesAndEnrichSources(sources, paramsDict):
 
     print('\tthreadPoolCount:', paramsDict['threadPoolCount'])
 
-    textColToLabel = []
-    listOfEntities2dList = []
-
-    count = 1
-    total = len(sources)
     nerVersion = ''
-    for source, sourceDict in sources.items():
-        
-        if( paramsDict['debugFlag'] and paramsDict['cacheFlag'] ):
-            html = derefURICache( sourceDict['link'] )
-        else:
-            html = dereferenceURI( sourceDict['link'], paramsDict['derefSleep'] )
-        
-        #set defaults - start
-        setSourceDictDetails(sourceDict)
-        #set defaults - end
+    listOfEntities = []
+    textColToLabel = textProcPipeline(sources, paramsDict)
 
-        print('\tsource:', source)
-        print('\t', count, 'of', total)
-        count += 1
-
-        if( html == '' ):
-            continue
-
-        title = extractPageTitleFromHTML(html)
-        text = clean_html(html)
-        text = sanitizeText(text)
-        favicon = extractFavIconFromHTML(html, sourceDict['link'])
-
-        print('\thtml.len:', len(html))
-        print('\ttext.len:', len(text))
-        print()
-        if( text == '' ):
-            continue
-
-        sourceDict['title'] = title
-        sourceDict['text'] = text
-        sourceDict['favicon'] = favicon
-        
-        textColToLabel.append({
-            'addTopKTermsFlag': paramsDict['addTopKTermsFlag'],
-            'textToLabel': text, 
-            'id': source,
-            'published': sourceDict['published']
-        })
-    
     try:
         workers = Pool(paramsDict['threadPoolCount'])
         
         print('\tNER version: Spacy v3.2.1')
-        listOfEntities2dList = workers.map(parallelNERNew, textColToLabel)
+        listOfEntities = workers.map(parallelNERNew, textColToLabel)
         nerVersion = f'Spacy {spacy.__version__}'
 
         workers.close()
@@ -412,16 +431,13 @@ def getEntitiesAndEnrichSources(sources, paramsDict):
         localErrorHandler()
         return sources
 
-    for entitiesDetailsDict in listOfEntities2dList:
+    for entitiesDetailsDict in listOfEntities:
         
         source = entitiesDetailsDict['id']
-        sources[source]['entities'] = entitiesDetailsDict['entities2dList']
+        sources[source]['entities'] = entitiesDetailsDict['entitiesList']
         #adding title tokens could lead do duplicates, but statement kept for simplicity since there are no adverse effects
         sources[source]['entities'] += getTokenLabelsForText( sources[source]['title'], 'TITLE' )
-
-        #clear some fields
         sources[source]['extraction-time'] = datetime.now().isoformat()
-        sources[source]['entities'] = addDetailsToEntities( sources[source]['entities'] )
 
     return sources, nerVersion
 
@@ -663,7 +679,7 @@ def genGraph(defaultConfig, config):
 
     print('\twould skip entities in clustering:', config['clust-skip-ent-classes'])
 
-    sources, domainRSSFeedsDict = getSourcesFromRSS( config['feed-parameters']['feeds'], maxLinksToExtractPerSource=config['feed-parameters']['max-extract-links-count'] )    
+    sources, domainRSSFeedsDict = getSourcesFromRSS( config['feed-parameters']['feeds'], maxLinksToExtractPerSource=config['feed-parameters']['max-extract-links-count'], threadPoolCount=entityBuildingParams['threadPoolCount'] )    
     sources, nerVersion = getEntitiesAndEnrichSources(sources, entityBuildingParams)
     addSkipEntities( sources, config['clust-skip-ent-classes'] )
     sources = runGraphStories(sources, minSim=config['graph-parameters']['min-sim'], maxIter=config['graph-parameters']['max-iterations'], thresholds=thresholds)
