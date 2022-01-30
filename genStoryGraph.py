@@ -154,7 +154,7 @@ def fetchLinksFromFeeds(uri, countOfLinksToGet=1, archiveRSSFlag=True, threadPoo
             urisToExpand.append(entry.link)
             tempDict['title'] = ''
             tempDict['published'] = ''
-            tempDict['link'] = entry.link #expandUrl(entry.link)    
+            tempDict['link'] = entry.link
             tempDict['rss-uri-m'] = id_rssMemento
             
             if( 'title' in entry ):
