@@ -296,15 +296,20 @@ def parallelNERNew(inputDict):
 
     nlp = spacy.load('en_core_web_sm')
     spacy_doc = nlp( inputDict['text'] )
+    doc_len = len(spacy_doc)
+
+    if( doc_len < 100 ):
+        return {
+            'entitiesList': [],
+            'id': inputDict['id']
+        }
+
     top_k_terms = get_top_k_terms( [ t.text for t in spacy_doc], inputDict['addTopKTermsFlag'] )
 
     return { 
-        'entitiesList': get_spacy_entities(spacy_doc.ents, 
-        top_k_terms=top_k_terms,
-        base_ref_date=datetime.now(),
-        labels_lst=list(nlp.get_pipe('ner').labels),
-        output_2d_lst=False
-    ), 'id': inputDict['id'] }
+        'entitiesList': get_spacy_entities(spacy_doc.ents, top_k_terms=top_k_terms, base_ref_date=datetime.now(), labels_lst=list(nlp.get_pipe('ner').labels), output_2d_lst=False), 
+        'id': inputDict['id'] 
+    }
 
 def setSourceDictDetails(sourceDict):
 
@@ -383,6 +388,7 @@ def textProcPipeline(sources, paramsDict):
         if( len(res) == 0 ):
             continue
 
+        #update sources
         source = res['id']
         sources[source]['title'] = res['title']
         sources[source]['text'] = res['text']
