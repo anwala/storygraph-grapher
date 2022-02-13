@@ -154,14 +154,12 @@ class GraphStories(object):
 		return self.storiesGraph
 
 	@staticmethod
-	def extractSetFromCluster(cluster, extractionKey, tokenizeOnlyTriple=True):
+	def extractSetFromCluster(cluster, extractionKey):
 
 		clusterSet = set()
 		for setMemberDict in cluster:
-			
-			entityClassUpper = setMemberDict['class'].upper()
 
-			if( tokenizeOnlyTriple == True and entityClassUpper not in ['PERSON', 'LOCATION', 'ORGANIZATION'] ):
+			if( setMemberDict['class'].upper() in ['DATE', 'PERCENT', 'MONEY'] ):
 				#don't tokenize datetimes and percent and money
 				clusterSet.add( setMemberDict[extractionKey].lower() )
 			else:
