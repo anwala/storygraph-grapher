@@ -180,37 +180,6 @@ class GraphStories(object):
 		secondSet = GraphStories.extractSetFromCluster(clusterB, extractionKey)
 		#TOKENIZATION OPTIONS - end
 
-		#output experiment - start
-		'''
-			firstSetList = list(firstSet)
-			secondSetList = list(secondSet)
-
-			firstSetList.sort()
-			secondSetList.sort()
-			
-			largerSet = len(firstSetList)
-			if( len(secondSetList) > largerSet ):
-				largerSet = len(secondSetList)
-
-			print('\t\tset0 vs set1 -', distanceMetric)
-			for i in range(0, largerSet):
-
-				if( i<len(firstSetList) ):
-					toPrint = firstSetList[i]
-				else:
-					toPrint = '-'
-
-				toPrint += '\t'
-
-				if( i<len(secondSetList) ):
-					toPrint += secondSetList[i]
-				else:
-					toPrint += '-'
-
-				print('\t\t\t', toPrint)
-		'''
-		#output experiment - end
-
 		
 		setDetailsDict = {}
 
