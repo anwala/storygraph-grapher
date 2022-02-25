@@ -442,7 +442,10 @@ def getEntitiesAndEnrichSources(sources, paramsDict):
         source = entitiesDetailsDict['id']
         sources[source]['entities'] = entitiesDetailsDict['entitiesList']
         #adding title tokens could lead do duplicates, but statement kept for simplicity since there are no adverse effects
-        sources[source]['entities'] += getTokenLabelsForText( sources[source]['title'], 'TITLE' )
+        if( len(sources[source]['entities']) != 0 ):
+            #Avoid case where TITLE is the only entity class
+            sources[source]['entities'] += getTokenLabelsForText( sources[source]['title'], 'TITLE' )
+
         sources[source]['extraction-time'] = datetime.now().isoformat()
 
     return sources, nerVersion
