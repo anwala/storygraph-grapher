@@ -6,6 +6,7 @@ import requests
 import operator
 import string
 import time
+import warnings
 
 from functools import reduce
 from os.path import dirname, abspath
@@ -18,6 +19,13 @@ from multiprocessing import Pool
 from subprocess import check_output
 from tldextract import extract
 from urllib.parse import urlparse
+
+
+# Ignore dateparser warnings regarding pytz
+warnings.filterwarnings(
+    "ignore",
+    message="The localize method is no longer necessary, as this time zone supports the fold attribute",
+)
 
 #html/url - start
 
@@ -998,7 +1006,13 @@ def get_spacy_entities(spacy_ents, top_k_terms=[], base_ref_date=datetime.now(),
         #normalize date - start
         if( e.label_ == 'DATE' ):
             
-            parsed_date = parseDateStr( ent_str, settings={'RELATIVE_BASE': base_ref_date} )
+            parsed_date = None
+            try:
+                parsed_date = parseDateStr( ent_str, settings={'RELATIVE_BASE': base_ref_date} )
+            except:
+                genericErrorInfo()
+                continue
+
             if( parsed_date is None ):
                 continue
 

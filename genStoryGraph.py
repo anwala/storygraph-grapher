@@ -424,13 +424,20 @@ def getEntitiesAndEnrichSources(sources, paramsDict):
     listOfEntities = []
     textColToLabel = textProcPipeline(sources, paramsDict)
 
+    #print('\nDEBUG - site 1' * 100)
     try:
         workers = Pool(paramsDict['threadPoolCount'])
-        
         print('\tNER version: Spacy v3.2.1')
         listOfEntities = workers.map(parallelNERNew, textColToLabel)
-        nerVersion = f'Spacy {spacy.__version__}'
+        
+        #for debugging - start
+        '''
+        for i in range(len(textColToLabel)):
+            parallelNERNew(textColToLabel[i])
+        '''
+        #for debugging - end
 
+        nerVersion = f'Spacy {spacy.__version__}'
         workers.close()
         workers.join()
     except:
@@ -867,6 +874,8 @@ if __name__ == "__main__":
                 genGraph( allParameters['default-config'], childConfig )
             except:
                 localErrorHandler()
+
+            #print('\nDEBUG - site 0' * 100)
     
         delta = datetime.now() - prevNow
         print('\tdelta seconds:', delta.seconds)
