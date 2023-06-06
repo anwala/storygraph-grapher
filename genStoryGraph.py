@@ -15,6 +15,7 @@ import sys
 import time
 
 from datetime import datetime
+from dateparser import parse as parseDateStr
 from GraphStories import GraphStories
 from multiprocessing import Pool
 from os.path import dirname, abspath
@@ -83,7 +84,11 @@ def getMementoRSSFeed(uri):
 
     if( len(id_rssMemento) != 0 ):
         try:
-            rssFeed = feedparser.parse(id_rssMemento)
+            rssXML = dereferenceURI(id_rssMemento, 0)    
+            #rssFeed = feedparser.parse(id_rssMemento)
+            
+            if( len(rssXML) != 0 ):
+                rssFeed = feedparser.parse(rssXML)
         except:
             localErrorHandler()
 
@@ -132,14 +137,41 @@ def fetchLinksFromFeeds(uri, countOfLinksToGet=1, archiveRSSFlag=True, threadPoo
     #attempt to process memento of rss - end
 
     if( len(rssFeed) == 0 ):
-        print('\t\trss: use uri-r')
         #here means that for some reason it was not possible to process rss memento, so use live version
+
+        for i in range(2):
+            #sometime dereferenceURI times out on the first try, so try again
+            print('\t\trss: use uri-r:', i, uri)
+            rssXML = dereferenceURI(uri, 0)
+            print('\t\trssXML.len/type:', len(rssXML))
+            if( len(rssXML) != 0 ):
+                break
+        
         try:
-            rssFeed = feedparser.parse(uri)
+            #rssFeed = feedparser.parse(uri)
+            if( len(rssXML) != 0 ):
+                rssFeed = feedparser.parse(rssXML)
         except:
             localErrorHandler()
     else:
         print('\t\trss: use uri-m:', id_rssMemento)
+
+    if( len(rssFeed) == 0 ):
+        return [], {}
+    
+
+    #sort rss feed in reverse chronological order  - start
+    for e in rssFeed.entries:
+        parsed_date = ''
+        try:
+            parsed_date = parseDateStr(e.published)
+            parsed_date = '' if parsed_date is None else parsed_date.strftime('%Y-%m-%dT%H:%M:%S')
+        except:
+            localErrorHandler()
+        e['published_fmt'] = parsed_date
+    rssFeed.entries = sorted(rssFeed.entries, key=lambda x: x['published_fmt'], reverse=True)
+    #sort rss feed in reverse chronological order  - end
+
 
     urisToExpand = []
     for i in range(len(rssFeed.entries)):

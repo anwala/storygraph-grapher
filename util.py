@@ -1008,6 +1008,7 @@ def get_spacy_entities(spacy_ents, top_k_terms=[], base_ref_date=datetime.now(),
             
             parsed_date = None
             try:
+                #ent_str = '75-1025' triggered error
                 parsed_date = parseDateStr( ent_str, settings={'RELATIVE_BASE': base_ref_date} )
             except:
                 genericErrorInfo()
