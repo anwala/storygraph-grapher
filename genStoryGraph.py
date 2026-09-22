@@ -139,9 +139,9 @@ def fetchLinksFromFeeds(uri, countOfLinksToGet=1, archiveRSSFlag=True, threadPoo
     if( len(rssFeed) == 0 ):
         #here means that for some reason it was not possible to process rss memento, so use live version
 
-        for i in range(2):
+        for i in range(3):
             #sometime dereferenceURI times out on the first try, so try again
-            print('\t\trss: use uri-r:', i, uri)
+            print(f'\t\t{i+1} of 3 deref rss: use uri-r:', i, uri)
             rssXML = dereferenceURI(uri, 0)
             print('\t\trssXML.len/type:', len(rssXML))
             if( len(rssXML) != 0 ):
@@ -172,42 +172,38 @@ def fetchLinksFromFeeds(uri, countOfLinksToGet=1, archiveRSSFlag=True, threadPoo
     rssFeed.entries = sorted(rssFeed.entries, key=lambda x: x['published_fmt'], reverse=True)
     #sort rss feed in reverse chronological order  - end
 
-
+    
     urisToExpand = []
     for i in range(len(rssFeed.entries)):
         entry = rssFeed.entries[i]
 
-        try:
-            tempDict = {}
+        tempDict = {}
+        if( 'link' not in entry ):
+            continue
 
-            if( 'link' not in entry ):
-                continue
-
-            urisToExpand.append(entry.link)
-            tempDict['title'] = ''
-            tempDict['published'] = ''
-            tempDict['link'] = entry.link
-            tempDict['rss-uri-m'] = id_rssMemento
+        urisToExpand.append(entry['link'])
+        tempDict['title'] = ''
+        tempDict['published'] = ''
+        tempDict['link'] = entry['link']
+        tempDict['rss-uri-m'] = id_rssMemento
+        
+        tempDict['title'] =  entry.get('title', '')
+        tempDict['published'] = entry.get('published', '')
+        
+        #get largest text content - start
+        tempDict['content'] = entry.get('content', [{'value': ''}])[0].get('value', '')
+        for j in range( 1, len(entry.get('content', [])) ):
+            if( len(entry['content'][j].get('value', '')) > len(tempDict['content']) ):
+                tempDict['content'] = entry['content'][j]['value']
+        #get largest text content - end
+        tempDict['summary'] = entry.get('summary', '')
             
-            if( 'title' in entry ):
-                tempDict['title'] =  entry.title
-                if( verbose ):
-                    print('\ttitle:', entry.title)
+        links.append(tempDict)
 
-            if( 'published' in entry ):
-                tempDict['published'] = entry.published
-                if( verbose ):
-                    print('\tpublished:', entry.published)
-                    print('\tlink:', tempDict['link'])
-                    print()
-
-            links.append(tempDict)
-        except:
-            localErrorHandler()
-
-        if( i+1 == countOfLinksToGet ):
+        if( len(links) == countOfLinksToGet ):
             break
 
+    
     if( len(urisToExpand) != 0 ):
         
         urisToExpand = expandURIs(urisToExpand, threadCount=threadPoolCount)
@@ -236,6 +232,15 @@ def getSourcesFromRSS(rssLinks, maxLinksToExtractPerSource=1, archiveRSSFlag=Tru
     sourcesToRename = {}
     domainRSSFeedsDict = {}
     throttle = 0
+    
+    '''
+    print('DEBUG SETTING rssLinks, maxLinksToExtractPerSource')
+    maxLinksToExtractPerSource = 3
+    rssLinks = [
+        {'rss': 'https://www.washingtonexaminer.com/section/news/feed', 'custom': {'node-details': {'type': 'left', 'color': 'blue', 'annotation': 'polarity'}}}
+    ]
+    '''
+
     for rssDict in rssLinks:
 
         if( throttle > 0 and archiveRSSFlag ):
@@ -244,7 +249,6 @@ def getSourcesFromRSS(rssLinks, maxLinksToExtractPerSource=1, archiveRSSFlag=Tru
 
         prevNow = datetime.now()        
         links, rssFeed = fetchLinksFromFeeds(rssDict['rss'].strip(), maxLinksToExtractPerSource, archiveRSSFlag=archiveRSSFlag, threadPoolCount=threadPoolCount)
-
         
         for uriDict in links:
             
@@ -295,6 +299,7 @@ def getSourcesFromRSS(rssLinks, maxLinksToExtractPerSource=1, archiveRSSFlag=Tru
         domainLink = sourcesDict[domain]['link']
         sourcesDict[domain + '-0'] = sourcesDict.pop(domain)
     #rename first instance of source with multiple instance as source-0 - end
+   
 
     return sourcesDict, domainRSSFeedsDict
 
@@ -345,7 +350,7 @@ def parallelNERNew(inputDict):
 
 def setSourceDictDetails(sourceDict):
 
-    sourceDict['title'] = ''
+    sourceDict.setdefault('title', '')
     sourceDict['text'] = ''
     sourceDict['favicon'] = ''
     sourceDict['entities'] = []
@@ -360,27 +365,41 @@ def parallelTextProcHelper(inputDict):
     paramsDict = inputDict['paramsDict']
     print(inputDict['printMsg'])
 
+    rss_content = inputDict.get('content', '')
+    rss_summary = inputDict.get('summary', '')
+
     result = {
-        'addTopKTermsFlag': paramsDict['addTopKTermsFlag'],
-        'id': source,
         'text': '',
-        'title': '',
-        'favicon': ''
+        'favicon': '',
+        'text_src': 'no_op',
+        'id': source,
+        'title': inputDict.get('title', '').strip(),
+        'addTopKTermsFlag': paramsDict['addTopKTermsFlag']
     }
 
-    if( paramsDict['debugFlag'] and paramsDict['cacheFlag'] ):
-        html = derefURICache( link )
+    if( len(rss_content) > len(rss_summary) ):
+        html = rss_content
+        result['text_src'] = 'content'
+    else: 
+        html = rss_summary
+        result['text_src'] = 'summary'
+        
+
+    if( len(html) > 300 ):
+        result['text'] = clean_html(html, method='nltk')
     else:
-        html = dereferenceURI( link, paramsDict['derefSleep'] )
+        if( paramsDict['debugFlag'] and paramsDict['cacheFlag'] ):
+            html = derefURICache( link )
+        else:
+            html = dereferenceURI( link, paramsDict['derefSleep'] )
 
-    if( html == '' ):
-        return result
-
-    result['title'] = extractPageTitleFromHTML(html)
-    result['text'] = clean_html(html)
+        result['text'] = clean_html(html)
+        result['title'] = extractPageTitleFromHTML(html)
+        result['favicon'] = extractFavIconFromHTML(html, link)
+        
+    
     result['text'] = sanitizeText( result['text'] )
-    result['favicon'] = extractFavIconFromHTML(html, link)
-
+    
     return result
 
 def textProcPipeline(sources, paramsDict):
@@ -400,6 +419,8 @@ def textProcPipeline(sources, paramsDict):
         jobsLst.append({
             'source': source,
             'link': sourceDict['link'],
+            'content': sourceDict.get('content', ''),
+            'summary': sourceDict.get('summary', ''),
             'paramsDict': paramsDict,
             'printMsg': printMsg
         })
@@ -422,9 +443,11 @@ def textProcPipeline(sources, paramsDict):
 
         #update sources
         source = res['id']
-        sources[source]['title'] = res['title']
+        sources[source]['title'] = sources[source]['title'] if res['title'].strip() == '' else res['title']
         sources[source]['text'] = res['text']
         sources[source]['favicon'] = res['favicon']
+
+        sources[source].pop( res['text_src'], None )
         
     return textColToLabel
 
@@ -703,7 +726,6 @@ def addSkipEntities( sources, skipTheseEntities ):
                 sourceDict['entities'].append(ent)
 
 def genGraph(defaultConfig, config):
-    
     
     print('\ngenGraph():')
 

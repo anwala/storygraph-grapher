@@ -382,8 +382,10 @@ def getDedupKeyForURI(uri):
 
 def getCustomHeaderDict():
 
+    #WAPO wouldn't honor the previous User-Agent, so I changed it.
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.103 Safari/537.36',
+        #'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.103 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:139.0) Gecko/20100101 Firefox/139.0',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
         'Accept-Encoding': 'gzip, deflate',
@@ -996,7 +998,7 @@ def get_spacy_entities(spacy_ents, top_k_terms=[], base_ref_date=datetime.now(),
 
     ents_dedup = set()
     final_ents = []
-    
+
     for e in spacy_ents:
 
         ent_str = e.text
@@ -1011,6 +1013,7 @@ def get_spacy_entities(spacy_ents, top_k_terms=[], base_ref_date=datetime.now(),
                 #ent_str = '75-1025' triggered error
                 parsed_date = parseDateStr( ent_str, settings={'RELATIVE_BASE': base_ref_date} )
             except:
+                print('ent_str:', ent_str, 'base_ref_date:', base_ref_date, type(base_ref_date))
                 genericErrorInfo()
                 continue
 
